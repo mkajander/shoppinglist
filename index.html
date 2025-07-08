@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interaktiivinen Ostoslista</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Neutral -->
+    <!-- Application Structure Plan: The application is structured as an interactive dashboard. It starts with a high-level visual summary (a progress bar and a donut chart showing item distribution by store section) to give the user a quick overview of their shopping trip. Below this, the main shopping list is broken into categorized cards that mirror the layout of a Lidl store, facilitating an efficient shopping experience. Each item is an interactive checkbox. This structure was chosen because it transforms a static list into a functional tool, making the task of shopping more organized, trackable, and engaging. -->
+    <!-- Visualization & Content Choices: 
+        1. Shopping List Data -> Goal: Organize & Track -> Method: Interactive Checklist Cards -> Interaction: Users can check off items. This updates the application state, styles the item as 'complete', and updates the overall progress bar. Justification: This is the most direct and intuitive way to handle a list-based task.
+        2. Item Distribution -> Goal: Inform at a glance -> Method: Donut Chart (using Chart.js/Canvas) -> Interaction: A static visual that shows the proportion of items from each store section. Justification: Provides a quick, easy-to-digest summary of where the user will spend most of their time in the store.
+        3. Completion Progress -> Goal: Motivate & Track -> Method: Dynamic Progress Bar (HTML/CSS/JS) -> Interaction: The bar fills up as items are checked off. Justification: Offers immediate, satisfying visual feedback on progress, which is motivating for the user.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f7f4;
+            color: #3d3d3d;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 350px;
+            height: auto;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .checked-item {
+            text-decoration: line-through;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
+
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-slate-800">Ostoslista</h1>
+            <p class="text-slate-500 mt-2">Viikon ateriasuunnitelman mukaiset ostokset.</p>
+        </header>
+
+        <main>
+            <div class="bg-white rounded-2xl shadow-sm p-6 mb-8">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-slate-700">Edistyminen</h2>
+                    <button id="clear-button" class="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors">Tyhjennä valinnat</button>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-4 mb-2">
+                    <div id="progress-bar" class="bg-emerald-500 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-center text-slate-600 font-medium">0 / 0 tuotetta kerätty</p>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-1 bg-white rounded-2xl shadow-sm p-6">
+                    <h2 class="text-xl font-bold text-slate-700 mb-4 text-center">Tuotteiden Jakauma</h2>
+                    <p class="text-slate-500 text-center mb-4">Näet tästä, miltä osastoilta suurin osa tuotteista löytyy.</p>
+                    <div class="chart-container">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <div id="shopping-list-container" class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                </div>
+            </div>
+        </main>
+        
+        <footer class="text-center mt-12 text-slate-400 text-sm">
+            <p>Luotu helpottamaan arkeasi.</p>
+        </footer>
+
+    </div>
+
+    <script src="data.js"></script>
+    <script>
+        const STORAGE_KEY = 'shoppingListState';
+
+        function saveState() {
+            const stateToSave = shoppingListData.map(item => ({ id: item.id, checked: item.checked }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+        }
+
+        function loadState() {
+            const savedState = localStorage.getItem(STORAGE_KEY);
+            if (savedState) {
+                const checkedStates = JSON.parse(savedState);
+                shoppingListData.forEach(item => {
+                    const savedItem = checkedStates.find(s => s.id === item.id);
+                    if (savedItem) {
+                        item.checked = savedItem.checked;
+                    }
+                });
+            }
+        }
+
+        function renderList() {
+            const listContainer = document.getElementById('shopping-list-container');
+            listContainer.innerHTML = '';
+            const categories = [...new Set(shoppingListData.map(item => item.category))];
+            
+            categories.forEach(category => {
+                const categoryCard = document.createElement('div');
+                categoryCard.className = 'bg-white rounded-2xl shadow-sm p-6';
+
+                const categoryTitle = document.createElement('h3');
+                categoryTitle.className = 'text-lg font-bold text-slate-700 mb-4 border-b pb-2';
+                categoryTitle.textContent = category;
+                categoryCard.appendChild(categoryTitle);
+                
+                const itemList = document.createElement('ul');
+                itemList.className = 'space-y-3';
+                categoryCard.appendChild(itemList);
+
+                const itemsForCategory = shoppingListData.filter(item => item.category === category);
+                
+                itemsForCategory.forEach(item => {
+                    const listItem = document.createElement('li');
+                    listItem.className = 'flex items-center';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = `item-${item.id}`;
+                    checkbox.className = 'h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500';
+                    checkbox.checked = item.checked;
+                    
+                    const label = document.createElement('label');
+                    label.htmlFor = `item-${item.id}`;
+                    label.className = 'ml-3 block text-slate-800 transition-colors duration-300';
+                    if (item.checked) {
+                        label.classList.add('checked-item');
+                    }
+                    
+                    checkbox.addEventListener('change', () => {
+                        item.checked = checkbox.checked;
+                        label.classList.toggle('checked-item', item.checked);
+                        updateProgress();
+                        saveState();
+                    });
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'font-medium';
+                    nameSpan.textContent = item.name;
+                    
+                    const quantitySpan = document.createElement('span');
+                    quantitySpan.className = 'text-sm text-slate-500 ml-2';
+                    quantitySpan.textContent = `(${item.quantity})`;
+
+                    label.appendChild(nameSpan);
+                    label.appendChild(quantitySpan);
+                    
+                    listItem.appendChild(checkbox);
+                    listItem.appendChild(label);
+                    itemList.appendChild(listItem);
+                });
+
+                listContainer.appendChild(categoryCard);
+            });
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof shoppingListData === 'undefined') {
+                console.error("shoppingListData is not loaded. Make sure data.js is included correctly.");
+                return;
+            }
+            loadState();
+            renderList();
+            createCategoryChart();
+            updateProgress();
+
+            const clearButton = document.getElementById('clear-button');
+            clearButton.addEventListener('click', () => {
+                shoppingListData.forEach(item => item.checked = false);
+                saveState();
+                renderList();
+                updateProgress();
+            });
+        });
+
+        function updateProgress() {
+            const totalItems = shoppingListData.length;
+            const checkedItems = shoppingListData.filter(item => item.checked).length;
+            const percentage = totalItems > 0 ? (checkedItems / totalItems) * 100 : 0;
+
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = `${checkedItems} / ${totalItems} tuotetta kerätty`;
+        }
+
+        function createCategoryChart() {
+            const ctx = document.getElementById('categoryChart').getContext('2d');
+            const categories = [...new Set(shoppingListData.map(item => item.category))];
+            const data = categories.map(category => {
+                return shoppingListData.filter(item => item.category === category).length;
+            });
+
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: categories.map(c => c.split('(')[0].trim()),
+                    datasets: [{
+                        label: 'Tuotteiden määrä',
+                        data: data,
+                        backgroundColor: [
+                            'rgba(52, 211, 153, 0.7)',
+                            'rgba(59, 130, 246, 0.7)',
+                            'rgba(234, 179, 8, 0.7)',
+                            'rgba(168, 85, 247, 0.7)',
+                            'rgba(239, 68, 68, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(52, 211, 153, 1)',
+                            'rgba(59, 130, 246, 1)',
+                            'rgba(234, 179, 8, 1)',
+                            'rgba(168, 85, 247, 1)',
+                            'rgba(239, 68, 68, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: {
+                                    family: 'Inter',
+                                    size: 12
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
