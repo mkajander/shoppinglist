@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viikon Ateriasuunnitelma</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Neutral -->
+    <!-- Application Structure Plan: The application uses a weekly dashboard layout, presenting each day (Monday-Sunday) as a distinct card in a responsive grid. This structure provides a clear, at-a-glance overview of the entire week. The primary interaction is a "details-on-demand" model: clicking a specific meal opens a modal window with its recipe. This keeps the main interface clean and uncluttered while making detailed information easily accessible without navigating away. This design was chosen for its intuitive nature and focus on quick information retrieval. -->
+    <!-- Visualization & Content Choices: 
+        1. Meal Plan Data -> Goal: Organize & Inform -> Method: Thematic Cards (per day) -> Interaction: Users click on a meal item. This triggers a modal pop-up. Justification: This prevents information overload on the main screen and allows users to focus on one recipe at a time.
+        2. Recipe Instructions -> Goal: Provide Detailed Steps -> Method: Modal Window -> Interaction: The modal displays the recipe for the selected meal and has a close button. Justification: A modal is a standard, user-friendly UI pattern for displaying contextual information without losing the main page context.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f7f4;
+            color: #3d3d3d;
+        }
+        .modal-backdrop {
+            transition: opacity 0.3s ease;
+        }
+        .modal-content {
+            transition: transform 0.3s ease;
+        }
+        .checked-meal > div > span {
+            text-decoration: line-through;
+            color: #9ca3af;
+        }
+        .checked-meal > div > .nutrition-info {
+            text-decoration: none;
+        }
+        .macro-bar-segment {
+            transition: width 0.5s ease-in-out;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-7xl">
+
+        <header class="text-center mb-10">
+            <h1 class="text-3xl sm:text-4xl font-bold text-slate-800">Viikon Ateriasuunnitelma</h1>
+            <p class="text-slate-500 mt-2">Terveellinen ja helppo ruokavalio viikollesi.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white rounded-2xl shadow-sm p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-slate-700">Viikon edistyminen</h2>
+                    <button id="clear-button" class="text-sm font-medium text-emerald-600 hover:text-emerald-800 transition-colors">Tyhjennä valinnat</button>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-4 mb-2">
+                    <div id="progress-bar" class="bg-emerald-500 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-center text-slate-600 font-medium">0 / 25 ateriaa suoritettu</p>
+            </div>
+            <div id="weekly-summary" class="bg-white rounded-2xl shadow-sm p-6">
+                 <!-- Weekly summary will be injected here -->
+            </div>
+        </div>
+
+
+        <main id="meal-plan-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <!-- Meal plan cards will be injected here by JavaScript -->
+        </main>
+        
+        <footer class="text-center mt-12 text-slate-400 text-sm">
+            <p>Johdonmukaisuus on avain menestykseen.</p>
+        </footer>
+
+    </div>
+
+    <!-- Modal Structure -->
+    <div id="recipe-modal" class="fixed inset-0 bg-black bg-opacity-50 modal-backdrop flex items-center justify-center p-4 hidden z-50">
+        <div id="modal-content" class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 transform scale-95">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h3 id="modal-title" class="text-xl font-bold text-slate-800">Resepti</h3>
+                <button id="modal-close-button" class="text-slate-500 hover:text-slate-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div id="modal-body" class="text-slate-600 space-y-2">
+                <!-- Recipe steps will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script>
+        const STORAGE_KEY = 'mealPlanState';
+        
+        function parseNutrition(nutritionString) {
+            if (!nutritionString) return { kcal: 0, p: 0, c: 0, f: 0 };
+            
+            let kcal = 0, p = 0, c = 0, f = 0;
+            
+            const kcalMatch = nutritionString.match(/([\d]+)-?([\d]+)? kcal/);
+            if (kcalMatch) {
+                const val1 = parseInt(kcalMatch[1], 10);
+                const val2 = kcalMatch[2] ? parseInt(kcalMatch[2], 10) : null;
+                kcal = val2 ? (val1 + val2) / 2 : val1;
+            }
+
+            const pMatch = nutritionString.match(/P: ~?([\d]+)g/);
+            if (pMatch) p = parseInt(pMatch[1], 10);
+            
+            const cMatch = nutritionString.match(/C: ~?([\d]+)g/);
+            if (cMatch) c = parseInt(cMatch[1], 10);
+
+            const fMatch = nutritionString.match(/F: ~?([\d]+)g/);
+            if (fMatch) f = parseInt(fMatch[1], 10);
+
+            return { kcal, p, c, f };
+        }
+
+        let totalMeals = 0;
+        mealPlan.forEach(day => {
+            day.totals = { kcal: 0, p: 0, c: 0, f: 0 };
+            for (const mealType in day.meals) {
+                const mealName = day.meals[mealType];
+                const mealInfo = recipes[mealName] || mealData[mealName] || {};
+                const nutrition = parseNutrition(mealInfo.nutrition);
+
+                day.totals.kcal += nutrition.kcal;
+                day.totals.p += nutrition.p;
+                day.totals.c += nutrition.c;
+                day.totals.f += nutrition.f;
+
+                day.meals[mealType] = {
+                    id: `${day.day}-${mealType}`,
+                    name: mealName,
+                    checked: false,
+                    nutrition: mealInfo.nutrition || ""
+                };
+                totalMeals++;
+            }
+        });
+
+        function saveState() {
+            const stateToSave = [];
+            mealPlan.forEach(day => {
+                for (const mealType in day.meals) {
+                    stateToSave.push({ id: day.meals[mealType].id, checked: day.meals[mealType].checked });
+                }
+            });
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+        }
+
+        function loadState() {
+            const savedState = localStorage.getItem(STORAGE_KEY);
+            if (savedState) {
+                const checkedStates = JSON.parse(savedState);
+                mealPlan.forEach(day => {
+                    for (const mealType in day.meals) {
+                        const savedItem = checkedStates.find(s => s.id === day.meals[mealType].id);
+                        if (savedItem) {
+                            day.meals[mealType].checked = savedItem.checked;
+                        }
+                    }
+                });
+            }
+        }
+        
+        function renderPlan() {
+            const container = document.getElementById('meal-plan-container');
+            container.innerHTML = '';
+
+            mealPlan.forEach(dayData => {
+                const dayCard = document.createElement('div');
+                dayCard.className = 'bg-white rounded-2xl shadow-sm p-6 flex flex-col';
+
+                const dayTitle = document.createElement('h2');
+                dayTitle.className = 'text-xl font-bold text-slate-800 mb-4 text-center border-b pb-2';
+                dayTitle.textContent = dayData.day;
+                dayCard.appendChild(dayTitle);
+
+                const mealList = document.createElement('ul');
+                mealList.className = 'space-y-4 flex-grow';
+                
+                for (const [mealType, meal] of Object.entries(dayData.meals)) {
+                    const mealItem = document.createElement('li');
+                    mealItem.className = 'flex items-start';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = meal.id;
+                    checkbox.checked = meal.checked;
+                    checkbox.className = 'h-5 w-5 mt-1 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 flex-shrink-0';
+                    
+                    const label = document.createElement('label');
+                    label.htmlFor = meal.id;
+                    label.className = 'ml-3 block w-full';
+                    if(meal.checked) {
+                        label.classList.add('checked-meal');
+                    }
+
+                    checkbox.addEventListener('change', () => {
+                        meal.checked = checkbox.checked;
+                        label.classList.toggle('checked-meal', meal.checked);
+                        updateProgress();
+                        saveState();
+                    });
+                    
+                    const textContentDiv = document.createElement('div');
+
+                    const mealTypeSpan = document.createElement('span');
+                    mealTypeSpan.className = 'block text-sm font-semibold text-emerald-700';
+                    mealTypeSpan.textContent = mealType;
+                    
+                    const mealNameSpan = document.createElement('span');
+                    mealNameSpan.className = 'block text-slate-600 transition-colors';
+                    
+                    if (recipes[meal.name]) {
+                        mealNameSpan.className += ' cursor-pointer hover:text-emerald-600';
+                        mealNameSpan.addEventListener('click', (event) => {
+                            event.preventDefault();
+                            showModal(meal.name);
+                        });
+                    }
+                    mealNameSpan.textContent = meal.name;
+
+                    textContentDiv.appendChild(mealTypeSpan);
+                    textContentDiv.appendChild(mealNameSpan);
+                    
+                    if (meal.nutrition) {
+                        const nutritionSpan = document.createElement('span');
+                        nutritionSpan.className = 'nutrition-info block text-xs text-slate-400 mt-1';
+                        nutritionSpan.textContent = meal.nutrition;
+                        textContentDiv.appendChild(nutritionSpan);
+                    }
+
+                    label.appendChild(textContentDiv);
+                    mealItem.appendChild(checkbox);
+                    mealItem.appendChild(label);
+                    mealList.appendChild(mealItem);
+                }
+                
+                dayCard.appendChild(mealList);
+
+                const daySummary = document.createElement('div');
+                daySummary.className = 'mt-4 pt-4 border-t';
+                const totals = dayData.totals;
+                const totalMacroCals = (totals.p * 4) + (totals.c * 4) + (totals.f * 9);
+                
+                const pPercent = totalMacroCals > 0 ? (totals.p * 4 / totalMacroCals) * 100 : 0;
+                const cPercent = totalMacroCals > 0 ? (totals.c * 4 / totalMacroCals) * 100 : 0;
+                const fPercent = totalMacroCals > 0 ? (totals.f * 9 / totalMacroCals) * 100 : 0;
+
+                daySummary.innerHTML = `
+                    <p class="text-center font-bold text-slate-700 text-lg">${Math.round(totals.kcal)} kcal</p>
+                    <div class="w-full bg-slate-200 rounded-full h-3 mt-2 flex overflow-hidden">
+                        <div class="macro-bar-segment bg-emerald-500" style="width: ${pPercent}%" title="Proteiini: ${totals.p}g"></div>
+                        <div class="macro-bar-segment bg-sky-500" style="width: ${cPercent}%" title="Hiilihydraatit: ${totals.c}g"></div>
+                        <div class="macro-bar-segment bg-amber-400" style="width: ${fPercent}%" title="Rasva: ${totals.f}g"></div>
+                    </div>
+                `;
+                dayCard.appendChild(daySummary);
+                container.appendChild(dayCard);
+            });
+        }
+
+        function renderWeeklySummary() {
+            const weeklyTotals = { kcal: 0 };
+            mealPlan.forEach(day => {
+                weeklyTotals.kcal += day.totals.kcal;
+            });
+
+            const summaryContainer = document.getElementById('weekly-summary');
+            summaryContainer.innerHTML = `
+                <h2 class="text-xl font-bold text-slate-700 mb-4">Viikon Yhteenveto</h2>
+                <div class="text-center">
+                    <p class="text-slate-600">Koko viikon arvioitu kalorimäärä:</p>
+                    <p class="text-3xl font-bold text-emerald-600 mt-1">${Math.round(weeklyTotals.kcal)} kcal</p>
+                </div>
+            `;
+        }
+
+        function updateProgress() {
+            let checkedCount = 0;
+            mealPlan.forEach(day => {
+                for(const mealType in day.meals) {
+                    if (day.meals[mealType].checked) {
+                        checkedCount++;
+                    }
+                }
+            });
+
+            const percentage = totalMeals > 0 ? (checkedCount / totalMeals) * 100 : 0;
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = `${checkedCount} / ${totalMeals} ateriaa suoritettu`;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const modal = document.getElementById('recipe-modal');
+            const modalContent = document.getElementById('modal-content');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            const modalCloseButton = document.getElementById('modal-close-button');
+            const clearButton = document.getElementById('clear-button');
+
+            loadState();
+            renderPlan();
+            renderWeeklySummary();
+            updateProgress();
+
+            window.showModal = (mealName) => {
+                const recipe = recipes[mealName];
+                if (!recipe || !recipe.steps) return;
+
+                modalTitle.textContent = mealName;
+                modalBody.innerHTML = '';
+                recipe.steps.forEach(step => {
+                    const p = document.createElement('p');
+                    p.textContent = step;
+                    modalBody.appendChild(p);
+                });
+
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    modal.classList.remove('opacity-0');
+                    modalContent.classList.remove('scale-95');
+                }, 10);
+            }
+
+            function closeModal() {
+                modal.classList.add('opacity-0');
+                modalContent.classList.add('scale-95');
+                setTimeout(() => modal.classList.add('hidden'), 300);
+            }
+
+            modalCloseButton.addEventListener('click', closeModal);
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    closeModal();
+                }
+            });
+
+            clearButton.addEventListener('click', () => {
+                mealPlan.forEach(day => {
+                    for(const mealType in day.meals) {
+                        day.meals[mealType].checked = false;
+                    }
+                });
+                saveState();
+                renderPlan();
+                updateProgress();
+            });
+        });
+    </script>
+</body>
+</html>
